@@ -148,3 +148,77 @@ clinically approved benchmark inhibitors are included as structures.
 
 **Laurence Jaboro** — Department of Chemistry, University of Benin, Nigeria
 Co-founder & President, Protein Design for Africa
+
+---
+
+## Molecular dynamics — run order
+
+| Block | What it does |
+|---|---|
+| `md/scripts/10_download_app.ps1` | Fetch `md_app.py`, create the working folder |
+| `md/scripts/11_selftest.ps1` | Stage files, build the image, build ONE system, measure GPU ns/day |
+| `md/scripts/12_production.ps1` | Six GPU containers, equal length, detached |
+| `md/scripts/13_analyse_and_report.ps1` | All analyses, figures, CSVs and the PDF (CPU) |
+| `md/scripts/14_fetch_results.ps1` | Download everything into Downloads\TEM1_MD_results |
+
+**Always run block 11 before block 12.** Production is six GPU containers for
+hours; the self-test costs cents and catches the failures that actually
+occurred during development.
+
+### Protonation at pH 7.4
+
+Ligands are not simulated as drawn. Each docked pose is protonated for pH 7.4
+by functional group before parameterisation, with heavy-atom coordinates
+untouched and an assertion that fires if the heavy-atom count changes:
+
+| Group | pKa | State at pH 7.4 |
+|---|---|---|
+| Carboxylic acid | ~2.7 | deprotonated, −1 |
+| Sulfate ester | <1 | deprotonated, −1 |
+| Tetrazole | ~4.9 | deprotonated, −1 |
+| Triazole | ~10 | **not** deprotonated |
+| Everything else | — | neutral |
+
+This matters mechanistically. Class A β-lactamases have an anion-binding pocket
+(Ser130, Lys234, Ser235, Thr235) that recognises the C3/C4 carboxylate of
+β-lactam substrates. Simulating clavulanate or sulbactam as a neutral COOH
+deletes the interaction that defines how they bind, and a neutral tetrazole
+cannot act as the carboxylate bioisostere it is designed to be.
+
+### Why OpenMM and not GROMACS
+
+OpenMM runs natively on CUDA, so the system is built and simulated by the same
+program — no topology conversion and nothing to validate. GROMACS only entered
+this project because one platform's GPU route required a pre-compiled `.tpr`;
+that conversion needed its own single-point energy validation (which passed at
+0.0045 %) and the worker then failed anyway. See `md/notes/`.
+
+### Packaging failures already solved
+
+All of these happened. The fixes are in the image definition.
+
+**`No module named 'importlib_resources'`.** `openmmforcefields` imports it at
+module load and conda does not pull it in.
+
+**Bare `ImportError` from `openff.interchange`.** Interchange 0.4.x predates
+pydantic 2; conda resolved it alongside pydantic 2.11 and the real error was
+swallowed by a lazy-import `__getattr__`. Pin `openff-interchange=0.5`.
+
+**`CUDA_ERROR_UNSUPPORTED_PTX_VERSION (222)`.** Left unpinned, conda selects
+CUDA 13.4 and OpenMM's kernels carry PTX the L40S driver refuses. Pin
+`cuda-version=12.9` — the **lowest** value that solves, because
+`openmmforcefields 0.16` forces `openmm >= 8.5.1` and every py3.11 build of
+those requires CUDA >= 12.9. Pinning 12.4 makes the environment unsolvable.
+
+**Stale `raw.githubusercontent.com`.** A push is not visible to
+`Invoke-WebRequest` for several minutes. Block 10 uses a cache-busting query
+string and prints the pinned versions so a stale file is obvious.
+
+### Cost control
+
+There is **no spend cap in the code**. `timeout=24*3600` is a wall-clock
+ceiling per container, not a budget. Set a spending limit in the Modal
+workspace — that is the only enforced backstop.
+
+Measured on an L40S at 41,906 atoms: 1,271 ns/day as a short burst. Sustained
+production is lower. Six containers at 50 ns is roughly 9–18 GPU-hours.
