@@ -23,6 +23,7 @@ image = (
         "openmm=8.2", "openff-toolkit=0.16", "openmmforcefields=0.14",
         "ambertools=23", "pdbfixer", "rdkit", "mdanalysis", "mdtraj",
         "parmed", "matplotlib", "pandas", "scipy", "reportlab", "numpy<2",
+        "importlib_resources", "importlib_metadata",
         channels=["conda-forge"])
 )
 vol = modal.Volume.from_name("tem1-md", create_if_missing=True)
