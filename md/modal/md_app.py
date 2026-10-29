@@ -26,12 +26,12 @@ image = (
         "openmmforcefields=0.16", "ambertools", "pdbfixer", "rdkit",
         "mdanalysis", "mdtraj", "parmed", "matplotlib", "pandas", "scipy",
         "reportlab", "importlib_resources", "importlib_metadata",
-        # nvcc lets OpenMM compile kernels at runtime for the GPU actually
-        # present, instead of loading precompiled PTX the driver may refuse
-        # (CUDA_ERROR_UNSUPPORTED_PTX_VERSION). Do NOT pin cuda-version here:
-        # openmmforcefields 0.16 requires openmm >= 8.5.1, whose py3.11 builds
-        # all require CUDA >= 12.9, so any lower pin makes the solve impossible.
-        "cuda-nvcc",
+        # CUDA 12.9 is the LOWEST that openmm >= 8.5.1 accepts on py3.11
+        # (openmmforcefields 0.16 forces that openmm floor). Left unpinned the
+        # solver takes CUDA 13, whose PTX the L40S driver refuses with
+        # CUDA_ERROR_UNSUPPORTED_PTX_VERSION. nvcc is kept so OpenMM can also
+        # compile kernels at runtime for the GPU actually present.
+        "cuda-version=12.9", "cuda-nvcc",
         channels=["conda-forge"])
     .env({"OPENMM_CUDA_COMPILER": "/opt/conda/bin/nvcc"})
 )
