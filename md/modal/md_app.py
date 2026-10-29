@@ -22,16 +22,16 @@ image = (
     .micromamba_install(
         # version set proven to build these systems together; openff-interchange
         # must be >=0.5 because 0.4.x predates pydantic 2 and fails on import
-        # OpenMM 8.6 has no py3.11 build below CUDA 12.9, and 12.9 PTX is newer
-        # than the host driver accepts - 8.2 has a py3.11 / CUDA 12.4 build
-        "openmm=8.2", "openff-toolkit=0.18", "openff-interchange=0.5",
+        "openmm", "openff-toolkit=0.18", "openff-interchange=0.5",
         "openmmforcefields=0.16", "ambertools", "pdbfixer", "rdkit",
         "mdanalysis", "mdtraj", "parmed", "matplotlib", "pandas", "scipy",
         "reportlab", "importlib_resources", "importlib_metadata",
-        # pin the CUDA stack so OpenMM's kernels match the host driver, and
-        # ship nvcc so OpenMM compiles kernels at runtime for the actual GPU
-        # instead of loading precompiled PTX (CUDA_ERROR_UNSUPPORTED_PTX_VERSION)
-        "cuda-version=12.4", "cuda-nvcc",
+        # nvcc lets OpenMM compile kernels at runtime for the GPU actually
+        # present, instead of loading precompiled PTX the driver may refuse
+        # (CUDA_ERROR_UNSUPPORTED_PTX_VERSION). Do NOT pin cuda-version here:
+        # openmmforcefields 0.16 requires openmm >= 8.5.1, whose py3.11 builds
+        # all require CUDA >= 12.9, so any lower pin makes the solve impossible.
+        "cuda-nvcc",
         channels=["conda-forge"])
     .env({"OPENMM_CUDA_COMPILER": "/opt/conda/bin/nvcc"})
 )
@@ -164,9 +164,19 @@ def selftest(pdb_text: str, sdf_text: str, name: str = "selftest"):
     problems for a few cents before any production GPU time is spent."""
     import openmm
     from openmm import app, unit, LangevinMiddleIntegrator
+    import subprocess as _sp
     print("openmm", openmm.version.version, flush=True)
     print("platforms:", [openmm.Platform.getPlatform(i).getName()
                          for i in range(openmm.Platform.getNumPlatforms())], flush=True)
+    try:
+        print(_sp.run(["nvidia-smi",
+                       "--query-gpu=name,driver_version,compute_cap",
+                       "--format=csv,noheader"],
+                      text=True, capture_output=True).stdout.strip(), flush=True)
+    except Exception as _e:
+        print("nvidia-smi unavailable:", _e, flush=True)
+    print("OPENMM_CUDA_COMPILER =", os.environ.get("OPENMM_CUDA_COMPILER"), flush=True)
+    print("nvcc present:", os.path.exists("/opt/conda/bin/nvcc"), flush=True)
     wd = f"/cache/_selftest/{name}"
     t0 = time.time()
     meta = _build(name, sdf_text, pdb_text, wd)
