@@ -20,10 +20,12 @@ GPU = os.environ.get("MD_GPU", "L40S")
 image = (
     modal.Image.micromamba(python_version="3.11")
     .micromamba_install(
-        "openmm=8.2", "openff-toolkit=0.16", "openmmforcefields=0.14",
-        "ambertools=23", "pdbfixer", "rdkit", "mdanalysis", "mdtraj",
-        "parmed", "matplotlib", "pandas", "scipy", "reportlab", "numpy<2",
-        "importlib_resources", "importlib_metadata",
+        # version set proven to build these systems together; openff-interchange
+        # must be >=0.5 because 0.4.x predates pydantic 2 and fails on import
+        "openmm=8.6", "openff-toolkit=0.18", "openff-interchange=0.5",
+        "openmmforcefields=0.16", "ambertools", "pdbfixer", "rdkit",
+        "mdanalysis", "mdtraj", "parmed", "matplotlib", "pandas", "scipy",
+        "reportlab", "importlib_resources", "importlib_metadata",
         channels=["conda-forge"])
 )
 vol = modal.Volume.from_name("tem1-md", create_if_missing=True)
