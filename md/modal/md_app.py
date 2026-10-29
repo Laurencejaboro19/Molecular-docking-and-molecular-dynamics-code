@@ -26,7 +26,12 @@ image = (
         "openmmforcefields=0.16", "ambertools", "pdbfixer", "rdkit",
         "mdanalysis", "mdtraj", "parmed", "matplotlib", "pandas", "scipy",
         "reportlab", "importlib_resources", "importlib_metadata",
+        # pin the CUDA stack so OpenMM's kernels match the host driver, and
+        # ship nvcc so OpenMM compiles kernels at runtime for the actual GPU
+        # instead of loading precompiled PTX (CUDA_ERROR_UNSUPPORTED_PTX_VERSION)
+        "cuda-version=12.4", "cuda-nvcc",
         channels=["conda-forge"])
+    .env({"OPENMM_CUDA_COMPILER": "/opt/conda/bin/nvcc"})
 )
 vol = modal.Volume.from_name("tem1-md", create_if_missing=True)
 app = modal.App("tem1-md", image=image)
@@ -170,18 +175,28 @@ def selftest(pdb_text: str, sdf_text: str, name: str = "selftest"):
     pdb = app.PDBFile(f"{wd}/start.pdb")
     integ = LangevinMiddleIntegrator(TEMP_K * unit.kelvin, 1 / unit.picosecond,
                                      0.004 * unit.picoseconds)
-    sim = app.Simulation(pdb.topology, system, integ,
-                         openmm.Platform.getPlatformByName("CUDA"))
+    try:
+        sim = app.Simulation(pdb.topology, system, integ,
+                             openmm.Platform.getPlatformByName("CUDA"),
+                             {"Precision": "mixed"})
+        plat = "CUDA"
+    except Exception as e:
+        print("!! CUDA platform unavailable:", e, flush=True)
+        print("!! falling back to CPU for the self-test only - do NOT run "
+              "production until CUDA works", flush=True)
+        sim = app.Simulation(pdb.topology, system, integ,
+                             openmm.Platform.getPlatformByName("CPU"))
+        plat = "CPU"
     sim.context.setPositions(pdb.positions)
     sim.minimizeEnergy(maxIterations=500)
     sim.context.setVelocitiesToTemperature(TEMP_K * unit.kelvin)
     t0 = time.time(); sim.step(2000); dt = time.time() - t0
     ns_per_day = (2000 * 0.004 / 1000) / (dt / 86400)
     st = sim.context.getState(getEnergy=True)
-    print(f"\n2000 steps in {dt:.1f} s  ->  {ns_per_day:.0f} ns/day on {GPU}", flush=True)
+    print(f"\n2000 steps in {dt:.1f} s  ->  {ns_per_day:.0f} ns/day on {GPU} ({plat})", flush=True)
     print("potential energy:", st.getPotentialEnergy(), flush=True)
     vol.commit()
-    return {"meta": meta, "ns_per_day": round(ns_per_day), "gpu": GPU}
+    return {"meta": meta, "ns_per_day": round(ns_per_day), "gpu": GPU, "platform": plat}
 
 
 @app.function(gpu=GPU, volumes={"/cache": vol}, timeout=24 * 3600)
