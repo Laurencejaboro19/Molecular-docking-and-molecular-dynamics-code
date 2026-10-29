@@ -214,11 +214,37 @@ those requires CUDA >= 12.9. Pinning 12.4 makes the environment unsolvable.
 `Invoke-WebRequest` for several minutes. Block 10 uses a cache-busting query
 string and prints the pinned versions so a stale file is obvious.
 
+### Running offline
+
+Use `run_spawn`, not `run`. A local entrypoint driving `.starmap()` is
+cancelled when the client disconnects, **even with `--detach`** — six
+simulations 40 minutes into production were lost to a dropped mobile
+connection. `.spawn()` queues each call server-side instead.
+
+Confirm before going offline:
+
+```
+python -m modal app list
+```
+
+`tem1-md` must read `ephemeral (detached)` with `Tasks = 6`. "App completed"
+in the launch output is expected — that is the local entrypoint exiting, not
+the simulations.
+
 ### Cost control
 
-There is **no spend cap in the code**. `timeout=24*3600` is a wall-clock
-ceiling per container, not a budget. Set a spending limit in the Modal
-workspace — that is the only enforced backstop.
+Modal has no dollar cap available in code. The only lever is wall-clock
+timeout, so the ceiling is derived from `BUDGET_USD` at the top of
+`md_app.py` — one number to change. At $70 across six containers at roughly
+$2.10 per GPU-hour that is about 5.5 hours each.
+
+Production steps in 1 ns chunks and stops itself 10 minutes before the
+timeout, so hitting the cap saves the trajectory instead of losing it: the
+volume is only committed at the end, and a killed container writes nothing.
+
+This is arithmetic, not enforcement. **Also set a spending limit in the Modal
+workspace settings** — that is billing-level and is the only thing Modal
+actually stops charges on.
 
 Measured on an L40S at 41,906 atoms: 1,271 ns/day as a short burst. Sustained
 production is lower. Six containers at 50 ns is roughly 9–18 GPU-hours.

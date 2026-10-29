@@ -1,9 +1,10 @@
 # =============================================================================
-# BLOCK 12 - PRODUCTION: ALL SIX COMPOUNDS, EQUAL LENGTH
+# BLOCK 12 - PRODUCTION: ALL SIX COMPOUNDS, EQUAL LENGTH, FULLY OFFLINE
 # =============================================================================
 # WHAT THIS DOES
-#   Launches one GPU container per compound. Each one rebuilds its system from
-#   the docked pose, minimises, equilibrates, and runs production.
+#   Spawns one GPU container per compound, server-side, and returns straight
+#   away. Each container rebuilds its system from the docked pose, minimises,
+#   equilibrates, and runs production.
 #
 #   Per compound:
 #     energy minimisation
@@ -15,23 +16,35 @@
 #
 #   Equilibration (1.1 ns) does NOT count toward the production length.
 #
-# WHY --detach MATTERS
-#   The containers run on Modal's hardware. Once this prints a call ID you can
-#   close PowerShell, shut the laptop, lose power or go offline and the run
-#   continues. Results persist in the Modal volume until fetched.
+# USE run_spawn, NOT run.
+#   `run` drives .starmap() from a local entrypoint. That dies with the client:
+#   if the laptop drops its connection the entire map is CANCELLED, even with
+#   --detach. This happened - six simulations 40 minutes into production were
+#   lost when a mobile connection went down.
 #
-# WHY EQUAL LENGTH MATTERS
+#   `run_spawn` calls .spawn() for each compound. Those calls are queued
+#   server-side and are genuinely independent of your machine.
+#
+#   Verify with:  python -m modal app list
+#   The app must show state "ephemeral (detached)" with Tasks = 6. Only then
+#   is it safe to close PowerShell and go offline.
+#
+# BUDGET
+#   There is no dollar cap available in code. The cap is a wall-clock timeout
+#   derived from BUDGET_USD at the top of md_app.py, so there is one number to
+#   change. At $70 / $2.10 per GPU-hour / 6 containers that is about 5.5 h each.
+#
+#   Production steps in 1 ns chunks and stops itself 10 minutes before the
+#   timeout, so a budget stop saves its trajectory instead of being killed
+#   empty. At 50 ns the runs finish in 2-3 h and never reach the cap.
+#
+#   ALSO set a spending limit in your Modal workspace settings. That one is
+#   billing-level and is the only thing Modal actually enforces.
+#
+# EQUAL LENGTH MATTERS
 #   The comparison between the designed compounds and the three clinical
-#   inhibitors is the whole point. Six runs of 30 ns is publishable; three of
-#   50 ns and three of 20 ns is not.
-#
-# COST
-#   There is NO spend cap in this code. timeout=24h per container is a
-#   wall-clock ceiling, not a budget. Set a spending limit in your Modal
-#   workspace settings - that is the only real backstop.
-#
-#   Six containers at 50 ns, 400-900 ns/day sustained, is roughly 9-18
-#   GPU-hours. At about $2/hour for an L40S that is about $18-36.
+#   inhibitors is the point. Six runs of 30 ns is publishable; three of 50 ns
+#   and three of 20 ns is not.
 # =============================================================================
 
 $dir = "$env:USERPROFILE\Downloads\tem1_md"
@@ -42,28 +55,47 @@ $env:PYTHONUTF8="1"; $env:PYTHONIOENCODING="utf-8"
 $n = (Get-ChildItem "$dir\ligands\*.sdf").Count
 if ($n -ne 6) { Write-Host "Expected 6 ligands, found $n - stopping." -ForegroundColor Red; return }
 
-python -m modal run --detach md_app.py::run `
+python -m modal run --detach md_app.py::run_spawn `
     --pdb "$dir\receptor.pdb" --ligdir "$dir\ligands" --tag prod --ns $ns
 
+Write-Host "`nNow confirm it is live before closing this window:" -ForegroundColor Cyan
+Write-Host "  python -m modal app list"
+Write-Host "  tem1-md must show  ephemeral (detached)  with Tasks = 6"
+
 # WHAT YOU SHOULD SEE IF IT WORKED
-#   launching 6 simulations at 50 ns each
-#   [BTL-004] 41906 atoms, charge -1, tetrazolate
-#   [BTL-004] restrained solute heavy atoms: 2044
-#   [BTL-004] minimising
-#   [BTL-004] NVT done
-#   [BTL-004] NPT stage k=500 done
-#   [BTL-004] NPT stage k=200 done
-#   ... through k=0 ...
-#   [BTL-004] production 50.0 ns (12500000 steps)
-#   / Running (6/6 containers active)...
+#   budget $70.0 -> 5.56 h per container
+#   spawned Avibactam fc-01M64WQDC98M5H9BM60Q3KWKBM
+#   spawned BTL-004 fc-...
+#   spawned BTL-007 fc-...
+#   spawned BTL-023 fc-...
+#   spawned Clavulanic_acid fc-...
+#   spawned Sulbactam fc-...
+#   6 simulations spawned - safe to close PowerShell now
 #
-#   Reaching "production" for all six means the restraints, the barostat and
-#   the staged release all worked.
+#   "App completed" afterwards is EXPECTED - that is the local entrypoint
+#   finishing, not the simulations. Confirm with `modal app list`.
 #
-#   DO NOT press Ctrl+C in this window. Open a second PowerShell window if you
-#   need the prompt. Monitor from the Modal dashboard link instead - it works
-#   with the PC switched off.
+#   Then, in the container logs, each compound should print its atom count,
+#   charge and protonation state. Expected at pH 7.4:
+#     BTL-023          neutral             0
+#     BTL-007          neutral             0
+#     BTL-004          tetrazolate        -1
+#     Avibactam        sulfate/sulfonate  -1
+#     Clavulanic_acid  carboxylate        -1
+#     Sulbactam        carboxylate        -1
 #
-#   Check the speed after ten minutes in the dashboard logs. The reporter
-#   prints a Speed (ns/day) column. Below 400 ns/day, consider stopping and
-#   restarting all six at 30 ns rather than overrunning the budget.
+# IF IT FAILS
+#   App shows "stopped" shortly after launch
+#       The spawn did not take. Check `modal app list` again after a minute;
+#       spawned calls can take a few seconds to register as tasks.
+#
+#   One compound dies, the rest continue
+#       They are independent containers. Re-run just that one by moving the
+#       other five SDFs out of the ligands folder temporarily.
+#
+#   You disconnect and want to check progress later
+#       python -m modal app list        (state and task count)
+#       or open the app URL in a browser - it works with the PC switched off.
+#
+#   There is no checkpoint-resume wired into the entrypoint. A relaunch starts
+#   from the beginning, which costs the few minutes of equilibration, not hours.

@@ -17,6 +17,16 @@ import modal
 
 GPU = os.environ.get("MD_GPU", "L40S")
 
+# ---- BUDGET CAP -----------------------------------------------------------
+# Modal has no dollar cap in code; the only lever is wall-clock timeout. The
+# ceiling below is derived from a budget so there is one number to change.
+# This is ARITHMETIC, not an enforced limit - set a spending limit in the
+# Modal workspace settings as well, which is billing-level and real.
+BUDGET_USD = 70.0            # total spend ceiling for the whole run
+USD_PER_GPU_HOUR = 2.10      # L40S rate - check Modal pricing and correct it
+N_SYSTEMS = 6                # containers running in parallel
+MAX_SECONDS = int(BUDGET_USD / (USD_PER_GPU_HOUR * N_SYSTEMS) * 3600)   # ~5.5 h
+
 image = (
     modal.Image.micromamba(python_version="3.11")
     .micromamba_install(
@@ -211,7 +221,7 @@ def selftest(pdb_text: str, sdf_text: str, name: str = "selftest"):
     return {"meta": meta, "ns_per_day": round(ns_per_day), "gpu": GPU, "platform": plat}
 
 
-@app.function(gpu=GPU, volumes={"/cache": vol}, timeout=24 * 3600)
+@app.function(gpu=GPU, volumes={"/cache": vol}, timeout=MAX_SECONDS)
 def simulate(name: str, sdf_text: str, pdb_text: str, tag: str = "prod",
              ns: float = 50.0, equil_ns: float = 1.1):
     """Build, minimise, equilibrate (NVT then staged-restraint NPT), produce."""
@@ -280,8 +290,21 @@ def simulate(name: str, sdf_text: str, pdb_text: str, tag: str = "prod",
     sim.reporters.append(app.CheckpointReporter(f"{wd}/state.chk", 25000))
     print(f"[{name}] production {ns} ns ({nsteps} steps)", flush=True)
     t0 = time.time()
-    sim.step(nsteps)
+    # step in 1 ns chunks so the run can stop itself before the container is
+    # killed. A killed container loses its trajectory entirely, because the
+    # volume is only committed at the end.
+    chunk = int(1000 / 0.004)
+    done = 0
+    while done < nsteps:
+        this = min(chunk, nsteps - done)
+        sim.step(this)
+        done += this
+        if time.time() - t0 > MAX_SECONDS - 600:
+            print(f"[{name}] BUDGET STOP at {done * 0.004 / 1000:.1f} ns "
+                  f"of {ns} ns requested", flush=True)
+            break
     wall = time.time() - t0
+    ns = round(done * 0.004 / 1000, 2)
     meta.update({"production_ns": ns, "wall_seconds": round(wall),
                  "ns_per_day": round(ns / (wall / 86400), 1),
                  "frame_interval_ps": 10})
@@ -643,6 +666,28 @@ def run(pdb: str, ligdir: str, tag: str = "prod", ns: float = 50.0):
     print(f"launching {len(jobs)} simulations at {ns} ns each")
     for r in simulate.starmap(jobs):
         print(r)
+
+
+@app.local_entrypoint()
+def run_spawn(pdb: str, ligdir: str, tag: str = "prod", ns: float = 50.0):
+    """Launch all six server-side and return immediately.
+
+    USE THIS, NOT `run`. A local entrypoint driving `.starmap()` dies with the
+    client: if the laptop loses its connection the whole map is cancelled, even
+    with --detach. `.spawn()` queues each call server-side instead, so the
+    simulations are genuinely independent of the machine that started them.
+    """
+    print(f"budget ${BUDGET_USD} -> {MAX_SECONDS / 3600:.2f} h per container")
+    pdb_text = open(pdb).read()
+    n = 0
+    for fn in sorted(os.listdir(ligdir)):
+        if fn.lower().endswith(".sdf"):
+            name = os.path.splitext(fn)[0].replace("_mode1", "")
+            call = simulate.spawn(name, open(os.path.join(ligdir, fn)).read(),
+                                  pdb_text, tag, ns)
+            print("spawned", name, call.object_id)
+            n += 1
+    print(n, "simulations spawned - safe to close PowerShell now")
 
 
 @app.local_entrypoint()
