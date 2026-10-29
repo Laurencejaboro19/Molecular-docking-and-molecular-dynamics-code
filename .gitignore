@@ -1,0 +1,12 @@
+out/
+*.tar.gz
+ligands/
+poses_pdbqt/
+__pycache__/
+*.pyc
+*.dcd
+*.xtc
+*.trr
+*.cpt
+*.edr
+*.log
