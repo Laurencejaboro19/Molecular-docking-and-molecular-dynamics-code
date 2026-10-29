@@ -22,7 +22,9 @@ image = (
     .micromamba_install(
         # version set proven to build these systems together; openff-interchange
         # must be >=0.5 because 0.4.x predates pydantic 2 and fails on import
-        "openmm=8.6", "openff-toolkit=0.18", "openff-interchange=0.5",
+        # OpenMM 8.6 has no py3.11 build below CUDA 12.9, and 12.9 PTX is newer
+        # than the host driver accepts - 8.2 has a py3.11 / CUDA 12.4 build
+        "openmm=8.2", "openff-toolkit=0.18", "openff-interchange=0.5",
         "openmmforcefields=0.16", "ambertools", "pdbfixer", "rdkit",
         "mdanalysis", "mdtraj", "parmed", "matplotlib", "pandas", "scipy",
         "reportlab", "importlib_resources", "importlib_metadata",
