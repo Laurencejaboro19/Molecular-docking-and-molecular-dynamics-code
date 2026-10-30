@@ -1,0 +1,23 @@
+﻿{
+    "compound":  "Avibactam",
+    "protonation_state":  "sulfate/sulfonate",
+    "net_charge":  -1,
+    "heavy_atoms":  17,
+    "inchikey_input":  "NDCUAPJVLWFHHB-UHNVWZDZSA-N",
+    "total_atoms":  41568,
+    "solute_atoms":  4100,
+    "waters":  12464,
+    "ions":  76,
+    "box_nm":  [
+                   7.604,
+                   7.604,
+                   7.604
+               ],
+    "forcefield":  "amber14SB + OpenFF Sage 2.1.0, AM1-BCC, TIP3P",
+    "salt_M":  0.15,
+    "hydrogen_mass_amu":  1.5,
+    "production_ns":  50.0,
+    "wall_seconds":  4591,
+    "ns_per_day":  940.9,
+    "frame_interval_ps":  10
+}

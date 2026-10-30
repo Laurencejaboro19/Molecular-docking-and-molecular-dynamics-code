@@ -1,0 +1,23 @@
+﻿{
+    "compound":  "BTL-004",
+    "protonation_state":  "tetrazolate",
+    "net_charge":  -1,
+    "heavy_atoms":  14,
+    "inchikey_input":  "withheld (unpublished compound)",
+    "total_atoms":  42271,
+    "solute_atoms":  4093,
+    "waters":  12700,
+    "ions":  78,
+    "box_nm":  [
+                   7.6489,
+                   7.6489,
+                   7.6489
+               ],
+    "forcefield":  "amber14SB + OpenFF Sage 2.1.0, AM1-BCC, TIP3P",
+    "salt_M":  0.15,
+    "hydrogen_mass_amu":  1.5,
+    "production_ns":  50.0,
+    "wall_seconds":  4618,
+    "ns_per_day":  935.4,
+    "frame_interval_ps":  10
+}

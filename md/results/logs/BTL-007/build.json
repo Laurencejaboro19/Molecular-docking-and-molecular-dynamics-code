@@ -1,0 +1,23 @@
+﻿{
+    "compound":  "BTL-007",
+    "protonation_state":  "neutral",
+    "net_charge":  0,
+    "heavy_atoms":  16,
+    "inchikey_input":  "withheld (unpublished compound)",
+    "total_atoms":  42173,
+    "solute_atoms":  4097,
+    "waters":  12667,
+    "ions":  75,
+    "box_nm":  [
+                   7.6421,
+                   7.6421,
+                   7.6421
+               ],
+    "forcefield":  "amber14SB + OpenFF Sage 2.1.0, AM1-BCC, TIP3P",
+    "salt_M":  0.15,
+    "hydrogen_mass_amu":  1.5,
+    "production_ns":  50.0,
+    "wall_seconds":  4599,
+    "ns_per_day":  939.3,
+    "frame_interval_ps":  10
+}

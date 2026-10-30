@@ -1,0 +1,7 @@
+compound,protonation,net_charge,production_ns,total_atoms,mean_backbone_rmsd_A,mean_ligand_rmsd_A,mean_com_distance_A,hbonds_above_30pc,persistent_residues
+Avibactam,sulfate/sulfonate,-1,50.0,41568,0.84,2.2,4.36,3,SER130; SER235; ASN132
+BTL-004,tetrazolate,-1,50.0,42271,1.08,5.14,7.3,3,SER130; ARG244; SER235
+BTL-007,neutral,0,50.0,42173,0.99,28.27,27.11,0,
+BTL-023,neutral,0,50.0,41912,1.0,33.57,28.25,0,
+Clavulanic_acid,carboxylate,-1,50.0,41497,1.04,1.27,4.42,4,SER70; SER235; ALA237; SER130
+Sulbactam,carboxylate,-1,50.0,41860,0.95,6.17,9.6,1,ARG244
