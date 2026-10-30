@@ -376,8 +376,11 @@ EXPLAIN = {
  "com_dist": (
    "Ligand distance from the catalytic centroid",
    "Straight-line distance from the compound's centre of mass to the centroid "
-   "of the six catalytic atoms (8.972, 7.236, 39.252 A). Flat and small means "
-   "bound. A rise means the compound is leaving. This is the bluntest and "
+   "of the six catalytic atoms (Ser70 OG, Lys73 NZ, Ser130 OG, Asn132 ND2, "
+   "Glu166 OE1, Lys234 NZ), recomputed every frame from the protein itself and "
+   "measured with the minimum-image convention so a ligand crossing the "
+   "periodic boundary is not counted as having left. Flat and small means "
+   "bound; a rise means the compound is leaving. This is the bluntest and "
    "hardest-to-misread measure of whether a pose survived."),
 }
 
@@ -387,6 +390,29 @@ def _plot(ax, title, xlabel, ylabel):
     ax.set_xlabel(xlabel, fontsize=9); ax.set_ylabel(ylabel, fontsize=9)
     ax.tick_params(labelsize=8); ax.grid(alpha=.25, linewidth=.5)
     ax.legend(fontsize=7, frameon=False)
+
+
+
+def _catalytic_atoms(prot):
+    """The six catalytic functional atoms, found by POSITION in the residue
+    list rather than by resid, because OpenMM's PDB writer can lose resid
+    information. Index = Ambler number - 26 for the 263-residue mature TEM-1.
+    """
+    want = [(44, "OG"), (47, "NZ"), (104, "OG"),
+            (106, "ND2"), (140, "OE1"), (208, "NZ")]
+    res = prot.residues
+    idx = []
+    for i, nm in want:
+        if i < len(res):
+            a = res[i].atoms.select_atoms(f"name {nm}")
+            if len(a):
+                idx.append(a[0].index)
+    return prot.universe.atoms[idx] if len(idx) >= 4 else None
+
+
+def _minimum_image(d, box):
+    """Shortest periodic displacement, orthorhombic box."""
+    return d - box * np.round(d / box)
 
 
 def analyse_all(root, outdir):
@@ -418,11 +444,50 @@ def analyse_all(root, outdir):
             lig = u.select_atoms("not protein and not resname HOH WAT NA CL and not name H*")
         t_ns = np.array([ts.time / 1000.0 for ts in u.trajectory])
 
-        R = rms.RMSD(u, u, select="backbone",
-                     groupselections=[lig.indices.size and "index " +
-                                      " ".join(map(str, lig.indices)) or "protein"])
-        R.run()
-        bb_rmsd, lig_rmsd = R.results.rmsd[:, 2], R.results.rmsd[:, 3]
+        # ------------------------------------------------------------------
+        # Geometry pass, periodic-aware.
+        #
+        # Two things make a naive calculation wrong here. OpenMM re-centres the
+        # solute when it solvates, so the crystal-frame catalytic centroid no
+        # longer points at the active site - it must be recomputed per frame
+        # from the protein's own atoms. And the trajectory is wrapped, so a
+        # ligand crossing the box edge teleports; every displacement therefore
+        # needs the minimum-image convention applied.
+        # ------------------------------------------------------------------
+        bb = prot.select_atoms("backbone")
+        cat = _catalytic_atoms(prot)
+        if cat is None:
+            print(f"  !! {name}: catalytic atoms not found, "
+                  f"falling back to protein centre", flush=True)
+
+        u.trajectory[0]
+        box0 = u.dimensions[:3].copy()
+        bb_com0 = bb.center_of_mass()
+        bb_ref = bb.positions - bb_com0
+        pocket0 = cat.positions.mean(axis=0) if cat is not None else prot.center_of_mass()
+        d0 = _minimum_image(lig.positions - pocket0, box0)
+        lig_ref = (pocket0 + d0) - bb_com0
+
+        bb_rmsd, lig_rmsd, com_d = [], [], []
+        for ts in u.trajectory:
+            box = u.dimensions[:3]
+            bb_com = bb.center_of_mass()
+            cur = bb.positions - bb_com
+            Rm, _ = align.rotation_matrix(cur, bb_ref)
+            bb_rmsd.append(float(np.sqrt(((cur @ Rm.T - bb_ref) ** 2).sum(axis=1).mean())))
+
+            pocket = cat.positions.mean(axis=0) if cat is not None else prot.center_of_mass()
+            dl = _minimum_image(lig.positions - pocket, box)
+            lig_local = (pocket + dl) - bb_com
+            lig_now = lig_local @ Rm.T
+            lig_rmsd.append(float(np.sqrt(((lig_now - lig_ref) ** 2).sum(axis=1).mean())))
+
+            dcom = _minimum_image(lig.center_of_mass() - pocket, box)
+            com_d.append(float(np.linalg.norm(dcom)))
+
+        bb_rmsd = np.array(bb_rmsd)
+        lig_rmsd = np.array(lig_rmsd)
+        com_d = np.array(com_d)
 
         align.AlignTraj(u, u, select="backbone", in_memory=True).run()
         rmsf = rms.RMSF(prot.select_atoms("name CA")).run().results.rmsf
@@ -456,9 +521,6 @@ def analyse_all(root, outdir):
         occupancy[name] = sorted(
             [(k, 100.0 * v / nframes) for k, v in occ.items()],
             key=lambda x: -x[1])[:12]
-
-        com = np.array([lig.center_of_mass() for ts in u.trajectory])
-        com_d = np.linalg.norm(com - CENT, axis=1)
 
         series[name] = {"t": t_ns, "backbone_rmsd": bb_rmsd, "ligand_rmsd": lig_rmsd,
                         "rmsf": (resids, rmsf), "rgyr": rg, "sasa": sasa,
