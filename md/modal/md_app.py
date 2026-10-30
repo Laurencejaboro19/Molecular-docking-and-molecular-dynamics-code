@@ -637,7 +637,7 @@ def analyse(tag: str = "prod"):
 
 @app.local_entrypoint()
 def run_analysis(tag: str = "prod"):
-    for row in analyse(tag):
+    for row in analyse.remote(tag):
         print(row)
 
 
