@@ -223,18 +223,25 @@ def shard(name: str, tag: str, nframes: int, i0: int, i1: int):
         cmd.set("specular", 0.28)
         cmd.set("depth_cue", 1)
         cmd.set("fog_start", 0.42)
-        cmd.set("label_size", 20)
+        # 20 collided into an unreadable pile across the pocket; 13 with a
+        # black outline reads against both the protein and the background
+        cmd.set("label_size", 13)
         cmd.set("label_color", "white")
+        cmd.set("label_outline_color", "black")
+        cmd.set("label_shadow_mode", 2)
+        cmd.set("label_position", (0, 0, 3.0))
         cmd.set("dash_color", "yellow")
         cmd.set("dash_gap", 0.35)
-        cmd.label(f"polymer and resi {POCKET} and name CA",
+        # five labels, not eight - enough to orient the viewer without
+        # burying the molecule they annotate
+        cmd.label("polymer and resi 70+130+166+234+244 and name CA",
                   'f"{resn.capitalize()}{resi}"')
 
         # camera locked on the pocket, NOT following the ligand - so a
         # compound that leaves visibly walks out of frame
         cmd.set("state", 1)
         cmd.orient(f"polymer and resi {POCKET}")
-        cmd.zoom(f"polymer and resi {POCKET}", 9.0)
+        cmd.zoom(f"polymer and resi {POCKET}", 7.5)
         base = cmd.get_view()
 
         step = SPIN / nframes
@@ -246,6 +253,9 @@ def shard(name: str, tag: str, nframes: int, i0: int, i1: int):
             cmd.delete("hb")
             cmd.distance("hb", "resn LIG", f"polymer and resi {POCKET}",
                          mode=2)
+            # the dashes carry the message; the numeric distances just
+            # stacked on top of the residue labels
+            cmd.hide("labels", "hb")
             cmd.set_view(base)
             cmd.turn("y", step * i)
             cmd.ray(W, H)

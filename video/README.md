@@ -99,10 +99,13 @@ from under the other and those compounds failed the `frames missing`
 assertion. Stop one with `modal app stop <app id>` and let the other finish.
 
 **Labels too large.** At `label_size 20` the residue names collided into an
-unreadable pile across the middle of the pocket and the H-bond distance
-numbers stacked on top of them. Reduced to 13 with a black outline, cut to
-five residues, and the distance labels hidden — the dashes already show the
-contact and the occupancy numbers belong in the paper.
+unreadable pile across the middle of the pocket, and the H-bond distance
+numbers stacked on top of them. Fixed in the current version: size 13 with a
+black outline and a shadow so they read against both the protein and the
+background, offset 3 Å off the atom, cut from eight labels to five
+(Ser70, Ser130, Glu166, Lys234, Arg244), distance labels hidden, and the zoom
+buffer tightened from 9.0 to 7.5. The dashes already show the contact; the
+occupancy numbers belong in the paper, not flickering on screen.
 
 ## Confidentiality
 
