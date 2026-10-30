@@ -427,6 +427,8 @@ def analyse_all(root, outdir):
         align.AlignTraj(u, u, select="backbone", in_memory=True).run()
         rmsf = rms.RMSF(prot.select_atoms("name CA")).run().results.rmsf
         resids = prot.select_atoms("name CA").resids
+        if len(set(resids)) < 50:          # PDB lost resid info; restore Ambler numbering
+            resids = np.arange(len(resids)) + 26
 
         t = md.load(os.path.join(d, "traj.dcd"), top=os.path.join(d, "start.pdb"))
         pi = t.topology.select("protein")
@@ -434,8 +436,16 @@ def analyse_all(root, outdir):
         rg = md.compute_rg(tp) * 10.0
         sasa = md.shrake_rupley(tp, mode="residue").sum(axis=1) * 100.0
 
+        # Donors/acceptors must be given explicitly: a PDB-derived Universe has
+        # no partial charges, so MDAnalysis cannot guess them, and giving the
+        # selections also removes the need for bond information.
+        nonsolv = "not resname HOH WAT SOL NA CL NA+ CL-"
         hba = HydrogenBondAnalysis(
-            universe=u, between=["protein", "not protein and not resname HOH WAT NA CL"],
+            universe=u,
+            donors_sel=f"({nonsolv}) and (name N* or name O*)",
+            hydrogens_sel=f"({nonsolv}) and name H*",
+            acceptors_sel=f"({nonsolv}) and (name N* or name O*)",
+            between=["protein", f"not protein and {nonsolv}"],
             d_a_cutoff=3.5, d_h_a_angle_cutoff=150)
         hba.run()
         hb_count = hba.count_by_time()
