@@ -69,3 +69,66 @@ the three clinical inhibitors.
 - Ligands modelled neutral, although clavulanic acid, sulbactam and the
   tetrazole-containing compound would be anionic at pH 7.4
 - Single replicate per system
+
+---
+
+## 100 ns extension runs (tag `prod100`)
+
+Two systems were extended to 100 ns as independent replicates with explicit
+random seeds: **BTL-004** (seed 40001) and **Avibactam** (seed 40002). Both
+completed in full — `prod.csv` ends at 101,100 ps, which is 100 ns of
+production on top of 1.1 ns of equilibration.
+
+Scripts: `md/scripts/15_long_runs_100ns.ps1`, `16_verify_and_analyse.ps1`,
+`17_fetch_100ns_report.ps1`. Films: `video/scripts/25_100ns_films.ps1`.
+
+### Result
+
+| | mean ligand RMSD | mean COM distance | outcome |
+|---|---|---|---|
+| Avibactam | 2.98 Å | 5.47 Å | bound throughout |
+| BTL-004 | 27.24 Å | 23.33 Å | **left the active site** |
+
+Avibactam reproduces its 50 ns behaviour. **BTL-004 does not.** In the 50 ns
+run it was bound for 95.8% of frames with a single excursion near 42 ns; in
+this independent 100 ns run it left and did not return, ending up against
+surface residues (Arg120 41.1%, with Thr118, Arg94, Gly92, Leu91) rather than
+the catalytic pocket. Its active-site contacts — Ser130 21.7%, Ser235 18.5% —
+are from the period before it left.
+
+BTL-004 therefore stands at one run bound, one run not. No claim of stable
+binding can be made from the current data, and further replicates on that
+compound specifically are the next thing worth running.
+
+### Hydrogen-bond occupancies are not reproducible at n = 1
+
+Avibactam stayed bound in both runs, but its contact profile differs
+completely: Ser130 62.5% at 50 ns against 13.4% at 100 ns, with Arg244 and
+Asn132 dominating the longer run. Whether a ligand stays is reproducible;
+which residue it is touching at any moment is not. Single-run occupancy
+figures should not be quoted — report mean ± SD across replicates or omit them.
+
+### Occupancy bug found and fixed
+
+The 100 ns avibactam analysis reported **Arg244 at 115.9%**, which is
+impossible. `_hb_pairs` counted rows in `hba.results.hbonds`, and that table
+holds one row per bond per frame — two of the ligand's donors reaching the
+same residue in one frame counted twice. Occupancy is now the number of
+*frames* in which the residue made at least one hydrogen bond, so it is
+bounded by 100% as the word implies. Figures produced before this fix are
+inflated for any residue making multiple simultaneous contacts.
+
+### Two process failures worth keeping
+
+**`modal run --detach` did not protect the analysis.** Modal warns that
+detached mode "only keeps the last triggered Modal function alive". The
+connection dropped mid-analysis with `getaddrinfo failed`, the ephemeral app
+went with it, and `prod100_report` was never written — `fetch_report` returned
+a 45-byte empty tarball. Spawning `analyse` against the **deployed** app
+worked. Use `.spawn()` on a deployed function for anything long.
+
+**A budget stop is silent.** `MAX_SECONDS` is derived from
+`BUDGET_USD / (rate × N_SYSTEMS)`. Left at values set for six short containers,
+a 100 ns run would have been cut off at roughly 55 ns with no error — the
+chunked production loop stops itself cleanly. Always check the final
+timestamp in `prod.csv` before analysing.

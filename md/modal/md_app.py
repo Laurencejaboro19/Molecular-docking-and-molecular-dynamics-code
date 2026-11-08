@@ -223,7 +223,7 @@ def selftest(pdb_text: str, sdf_text: str, name: str = "selftest"):
 
 @app.function(gpu=GPU, volumes={"/cache": vol}, timeout=MAX_SECONDS)
 def simulate(name: str, sdf_text: str, pdb_text: str, tag: str = "prod",
-             ns: float = 50.0, equil_ns: float = 1.1):
+             ns: float = 50.0, equil_ns: float = 1.1, seed: int = 0):
     """Build, minimise, equilibrate (NVT then staged-restraint NPT), produce."""
     import numpy as np, openmm
     from openmm import app, unit, LangevinMiddleIntegrator, MonteCarloBarostat
@@ -255,6 +255,12 @@ def simulate(name: str, sdf_text: str, pdb_text: str, tag: str = "prod",
 
     integ = LangevinMiddleIntegrator(TEMP_K * unit.kelvin, 1 / unit.picosecond,
                                      0.004 * unit.picoseconds)
+    # Replicates differ only in their random stream. Seeding the thermostat
+    # and the starting velocities is what makes them independent samples
+    # rather than three copies of the same trajectory. seed=0 keeps the
+    # original unseeded behaviour, so the first production run reproduces.
+    if seed:
+        integ.setRandomNumberSeed(seed)
     sim = app.Simulation(top, system, integ,
                          openmm.Platform.getPlatformByName("CUDA"),
                          {"Precision": "mixed"})
@@ -267,7 +273,10 @@ def simulate(name: str, sdf_text: str, pdb_text: str, tag: str = "prod",
         potentialEnergy=True, density=True, volume=True, speed=True))
 
     # NVT 100 ps, fully restrained
-    sim.context.setVelocitiesToTemperature(TEMP_K * unit.kelvin)
+    if seed:
+        sim.context.setVelocitiesToTemperature(TEMP_K * unit.kelvin, seed)
+    else:
+        sim.context.setVelocitiesToTemperature(TEMP_K * unit.kelvin)
     sim.step(int(100 / 0.004))
     print(f"[{name}] NVT done", flush=True)
 
@@ -543,20 +552,32 @@ def analyse_all(root, outdir):
 
 
 def _hb_pairs(hba, u):
-    """Yield (residue label, donor ix, hydrogen ix, count) per protein residue."""
+    """Yield (residue label, None, None, number of frames with a contact).
+
+    The count is the number of FRAMES in which that residue made at least one
+    hydrogen bond to the ligand, not the number of hydrogen bonds.
+
+    The earlier version counted rows. hba.results.hbonds has one row per bond
+    per frame, so when two of the ligand's donors reached the same residue in
+    the same frame it counted twice, and dividing by the frame count could
+    exceed 100%. The 100 ns avibactam run reported Arg244 at 115.9% occupancy,
+    which is what exposed it. Collapsing to a set of frame indices per residue
+    makes occupancy mean what the word says.
+    """
     res = hba.results.hbonds
     if len(res) == 0:
         return []
-    out = {}
+    seen = {}
     for row in res:
+        frame = int(row[0])
         for ix in (int(row[1]), int(row[3])):
             at = u.atoms[ix]
             if at.segid and at.resname not in ("HOH", "WAT", "NA", "CL"):
                 if at.resname in ("UNK", "UNL", "LIG", "MOL"):
                     continue
                 lab = f"{at.resname}{at.resid}"
-                out[lab] = out.get(lab, 0) + 1
-    return [(k, None, None, v) for k, v in out.items()]
+                seen.setdefault(lab, set()).add(frame)
+    return [(k, None, None, len(v)) for k, v in seen.items()]
 
 
 def _write_outputs(series, summary, occupancy, outdir, plt, pd):
