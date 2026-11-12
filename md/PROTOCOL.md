@@ -132,3 +132,56 @@ worked. Use `.spawn()` on a deployed function for anything long.
 a 100 ns run would have been cut off at roughly 55 ns with no error — the
 chunked production loop stops itself cleanly. Always check the final
 timestamp in `prod.csv` before analysing.
+
+## Replicate runs (tag `prod_r2`)
+
+A second independent 50 ns run of all six systems, identical to `prod` except
+for the random seed applied to the Langevin integrator and to the initial
+velocity assignment (seeds 20001–20006). Launched by
+`scripts/18_replicate_50ns.ps1`. Full numbers and interpretation in
+`RESULTS_REPLICATES.md`.
+
+Backbone RMSD across all twelve trajectories: 0.99 ± 0.10 Å. Retention is not
+reproducible: clavulanic acid, a licensed TEM-1 inhibitor, was retained in run 1
+and left the site in run 2. Ligand retention is therefore not used as a
+predictor of activity anywhere in this work.
+
+### `BUDGET_USD` is not a spend cap
+
+`MAX_SECONDS` is derived from `BUDGET_USD / (USD_PER_GPU_HOUR * N_SYSTEMS)`, and
+the result is a per-container **timeout**. Modal never reads `BUDGET_USD`. The
+actual bill is GPU-hours × rate and depends only on how long the runs take.
+
+Lowering `BUDGET_USD` therefore saves nothing. It shortens the timeout, and the
+production loop stops itself 10 minutes before the timeout and writes what it
+has — so the run is silently truncated and you pay for the truncated part.
+Scripts 18 onwards set `MAX_SECONDS` directly to make this unambiguous. The only
+enforced cap is the workspace spending limit in Modal's billing settings.
+
+### Three more process failures worth keeping
+
+**`modal.exe` fails when the working directory has been deleted.** Symptom:
+`Program 'modal.exe' failed to run: The directory name is invalid`, followed by
+null-reference errors from the surrounding PowerShell. Windows cannot launch any
+process from a deleted current directory. It is not a Modal fault and nothing is
+wrong with the running jobs. Fix: `Set-Location $env:USERPROFILE` first, and use
+`python -m modal` rather than the bare launcher.
+
+**The video app writes to the `tem1-md` volume.** The app is *named* `tem1-video`
+but both apps share one volume. `modal volume ls tem1-video ...` returns
+`Volume 'tem1-video' not found in environment 'main'`. Films are at
+`tem1-md:<tag>_video/<compound>/<compound>.mp4`.
+
+**Launching the same film twice races on the frame directory.** `stitch` deletes
+each frame once it has encoded it, so two concurrent launches for the same
+compound fight over the same frames and the loser fails the `frames missing`
+assertion. Check `TASKS` before relaunching anything.
+
+### Receptor provenance
+
+Three campaigns were launched from three different local folders, and one of
+those folders was later deleted. `simulate()` writes `_rec.pdb` beside every
+trajectory, so the receptor each run actually used is preserved on the volume.
+`scripts/21_verify_receptor_provenance.ps1` hashes those against the docking
+receptor; all returned `D8F974B3AEA9AE87EFB86C495B10E52A`, closing the chain
+from `1BTL_clean.pdb` through docking to every MD run.
